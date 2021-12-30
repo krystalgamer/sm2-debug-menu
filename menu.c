@@ -372,12 +372,12 @@ char* getRealText(debug_menu_entry* entry, char* str) {
 }
 
 void getStringDimensions(const char* str, int* width, int* height) {
-	nglGetStringDimensions(*nglSysFont, str, width, height, 1.0, 1.0);
+	nglGetStringDimensions(*nglSysFont, str, width, height, cfi(1.0), cfi(1.0));
 }
 
 int getStringHeight(const char* str) {
 	int height;
-	nglGetStringDimensions(*nglSysFont, str, (void*)0, &height, 1.0, 1.0);
+	nglGetStringDimensions(*nglSysFont, str, (void*)0, &height, cfi(1.0), cfi(1.0));
 	return height;
 }
 
@@ -399,6 +399,7 @@ void render_current_debug_menu() {
 		 getStringDimensions(x, &cur_width, &cur_height); \
 		 debug_height += cur_height; \
 		 debug_width = max(debug_width, cur_width);\
+		 my_printf("String %08X %s", x, x);\
 	}
 
 	get_and_update(current_menu->title);
@@ -445,7 +446,10 @@ void render_current_debug_menu() {
 	render_height += 12;
 	int render_x = menu_x_start;
 	render_x += 8;
-	nglListAddString(*nglSysFont, current_menu->title, green_color, cfi(render_x * 1.0f), cfi(render_height * 1.0f), cfi(0.2f), cfi(1.f), cfi(1.f));
+	//nglListAddString(*nglSysFont, current_menu->title, green_color, cfi(render_x * 1.0f), cfi(render_height * 1.0f), cfi(0.2f), cfi(1.f), cfi(1.f));
+	//nglListAddString(*nglSysFont, current_menu->title, green_color, cfi(10.f), cfi(10.f), cfi(-0.2f), cfi(1.f), cfi(1.f));
+	nglListAddString(*nglSysFont, current_menu->title, green_color, cfi(render_x*1.0f), cfi(render_height * 1.0f), cfi(0.f), cfi(1.f), cfi(1.f));
+	return;
 	render_height += getStringHeight(current_menu->title);
 
 
@@ -475,8 +479,8 @@ void render_current_debug_menu() {
 void debug_menu_render(){
 
 	if (menu_enabled){
-		//render_current_debug_menu();
-		//my_print("CONA");
+		render_current_debug_menu();
+		//my_printf("CONA %08X", current_menu);
 	}
 }
 
@@ -500,9 +504,9 @@ void init_start_menu(){
 }
 
 void init_menus(){
-	//init_start_menu();
+	init_start_menu();
 	menus_inited = 1;
-	//my_print("menus have inited");
+	my_print("menus have inited");
 }
 
 int pause_menu_key_handler(int *a1, int pad, int dualshock){
