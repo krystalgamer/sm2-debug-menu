@@ -4,19 +4,34 @@
 #define START_FUNC __attribute__((alias("aqui_menu")))
 
 static int menu_enabled = 0;
+static int menus_inited = 0;
 static char buffer[1024];
+static volatile char *alias_buffer;
+static debug_menu* current_menu;
+static debug_menu* start_menu;
+
+
+
+
 #define my_printf(format, ...) {\
 	sprintf_orig(buffer, format, __VA_ARGS__);\
-	printf_syscall(buffer);\
+	actual_printer(5);\
 	}
 
 #define my_print printf_syscall
 
 
+
+
 void printf_syscall(const char* passedInA0, ...){
 	    asm __volatile__(
-			    "li $v1,0x75 \n"
-				    "syscall    \n" );
+		    "li $v1,0x75 \n"
+		    "syscall    \n"
+		    );
+}
+
+void __attribute__((noinline)) actual_printer(int i) {
+	printf_syscall(buffer);
 }
 
 void* memset(void *ptr,  int b, unsigned int size){
@@ -128,7 +143,7 @@ static const nglListAddStringF_ptr nglListAddStringF = (void*)0x005117B0;
 
 void nglSetQuadZ(nglQuad *quad, int z){
 
-	__asm__ (
+	    asm __volatile__(
 		"subu $sp, $sp, 4\n"
 		"sw $ra, 0($sp)\n"
 
@@ -145,7 +160,7 @@ void nglSetQuadZ(nglQuad *quad, int z){
 
 void nglSetQuadRect(nglQuad *quad, int x, int y, int x_end, int y_end){
 
-	__asm__ (
+	    asm __volatile__(
 		"subu $sp, $sp, 4\n"
 		"sw $ra, 0($sp)\n"
 
@@ -164,9 +179,9 @@ void nglSetQuadRect(nglQuad *quad, int x, int y, int x_end, int y_end){
 
 }
 
-void nglListAddString(void *font, char *str, int color, int x, int y, int z,  int x_scale, int y_scale){
+void nglListAddString(void *font, const char *str, int color, int x, int y, int z,  int x_scale, int y_scale){
 
-	__asm__ (
+	asm __volatile__(
 		"subu $sp, $sp, 4\n"
 		"sw $ra, 0($sp)\n"
 
@@ -186,6 +201,23 @@ void nglListAddString(void *font, char *str, int color, int x, int y, int z,  in
 		);
 }
 
+void nglGetStringDimensions(void *font, const char *str, int *width, int *height, int x_scale, int y_scale){
+	asm __volatile__ (
+		"subu $sp, $sp, 4\n"
+		"sw $ra, 0($sp)\n"
+
+		"mtc1 $a4, $f12\n"
+		"mtc1 $a5, $f13\n"
+
+		 "li $t9, 0x00511BC0\n"
+		 "jal $t9\n"
+
+		 "nop\n"
+		 "ld $ra, 0($sp)\n"
+		 "add $sp, $sp, 4\n"
+	       );
+
+}
 
 static void **nglSysFont = (void**)0x00611080;
 static void **g_game_ptr = (void**)0x00608314;
@@ -312,24 +344,165 @@ int __inline cfi(float f){
 	return c.i;
 }
 
+
+/*
+ * Menus
+ */
+
+
+#define max(a,b) ((a) < (b) ? (b) : (a))
+#define min(a,b) ((a) < (b) ? (a) : (b))
+static const char *UP_ARROW = " ^ ^ ^ ";
+static const char *DOWN_ARROW = " v v v ";
+
+
+char* getRealText(debug_menu_entry* entry, char* str) {
+
+	if (entry->entry_type == BOOLEAN_E) {
+		unsigned char* val = entry->data;
+		sprintf_orig(str, "%s: %s", entry->text, *val ? "True" : "False");
+		return str;
+	}
+
+	if (entry->entry_type == CUSTOM) {
+		return entry->custom_string_generator(entry);
+	}
+
+	return entry->text;
+}
+
+void getStringDimensions(const char* str, int* width, int* height) {
+	nglGetStringDimensions(*nglSysFont, str, width, height, 1.0, 1.0);
+}
+
+int getStringHeight(const char* str) {
+	int height;
+	nglGetStringDimensions(*nglSysFont, str, (void*)0, &height, 1.0, 1.0);
+	return height;
+}
+
+void render_current_debug_menu() {
+
+
+	char text_buffer[128];
+
+
+	int num_elements = min(MAX_ELEMENTS_PAGE, current_menu->used_slots - current_menu->window_start);
+	int needs_down_arrow = ((current_menu->window_start + MAX_ELEMENTS_PAGE) < current_menu->used_slots) ? 1 : 0;
+
+
+	int cur_width, cur_height;
+	int debug_width = 0;
+	int debug_height = 0;
+
+	#define get_and_update(x) {\
+		 getStringDimensions(x, &cur_width, &cur_height); \
+		 debug_height += cur_height; \
+		 debug_width = max(debug_width, cur_width);\
+	}
+
+	get_and_update(current_menu->title);
+	get_and_update(UP_ARROW);
+
+
+
+
+
+	int total_elements_page = needs_down_arrow ? MAX_ELEMENTS_PAGE : current_menu->used_slots - current_menu->window_start;
+
+	for (int i = 0; i < total_elements_page; i++) {
+
+		debug_menu_entry *entry = &current_menu->entries[current_menu->window_start + i];
+		char* cur = getRealText(entry, text_buffer);
+		get_and_update(cur);
+	}
+
+
+	if (needs_down_arrow) {
+		get_and_update(DOWN_ARROW);
+	}
+
+	nglQuad quad;
+
+
+	int menu_x_start = 20, menu_y_start = 40;
+	int menu_x_pad = 24, menu_y_pad = 18;
+
+	nglInitQuad(&quad);
+	nglSetQuadRect(&quad, cfi(menu_x_start), cfi(menu_y_start), cfi(menu_x_start + debug_width + menu_x_pad), cfi(menu_y_start + debug_height + menu_y_pad));
+	nglSetQuadColor(&quad, 0x60000000);
+	nglSetQuadZ(&quad, cfi(0.5f));
+	nglListAddQuad(&quad);
+
+
+	int white_color = nglColor(0x80, 0x80, 0x80, 0x80);
+	int yellow_color = nglColor(0x80, 0x80, 0, 0x80);
+	int green_color = nglColor(0, 0x80, 0, 0x80);
+	int pink_color = nglColor(0x80, 0, 0x80, 0x80);
+
+
+	int render_height = menu_y_start;
+	render_height += 12;
+	int render_x = menu_x_start;
+	render_x += 8;
+	nglListAddString(*nglSysFont, current_menu->title, green_color, cfi(render_x * 1.0f), cfi(render_height * 1.0f), cfi(0.2f), cfi(1.f), cfi(1.f));
+	render_height += getStringHeight(current_menu->title);
+
+
+	if (current_menu->window_start) {
+		nglListAddString(*nglSysFont, UP_ARROW, pink_color, cfi(render_x * 1.0f), cfi(render_height * 1.0f), cfi(0.2f), cfi(1.f), cfi(1.f));
+	}
+	render_height += getStringHeight(UP_ARROW);
+
+
+
+	for (int i = 0; i < total_elements_page; i++) {
+
+		int current_color = current_menu->cur_index == i ? yellow_color : white_color;
+
+		debug_menu_entry* entry = &current_menu->entries[current_menu->window_start + i];
+		char* cur = getRealText(entry, text_buffer);
+		nglListAddString(*nglSysFont, cur, current_color, cfi(render_x*1.0f), cfi(render_height*1.0f), cfi(0.2f), cfi(1.f), cfi(1.f));
+		render_height += getStringHeight(cur);
+	}
+
+	if (needs_down_arrow) {
+		nglListAddString(*nglSysFont, DOWN_ARROW, pink_color, cfi(render_x*1.0f), cfi(render_height*1.0f), cfi(0.2f), cfi(1.f), cfi(1.f));
+		render_height += getStringHeight(DOWN_ARROW);
+	}
+}
+
 void debug_menu_render(){
 
 	if (menu_enabled){
-
-		nglQuad quad;
-		nglInitQuad(&quad);
-		nglSetQuadRect(&quad, cfi(5.0f), cfi(5.0f), cfi(100.f), cfi(100.f));
-		nglSetQuadColor(&quad, 0x60000000);
-		nglSetQuadZ(&quad, cfi(0.f));
-		nglListAddQuad(&quad);
-
-		sprintf_orig(buffer, "State %d", game_get_cur_state(*g_game_ptr));
-		nglListAddString(*nglSysFont, buffer, 0x80800080, cfi(10.f), cfi(10.f), cfi(-1.f), cfi(1.f), cfi(1.f));
-		//nglListAddString(*nglSysFont, "Pila", c.i, c.i, c.i, 0xFFFFFFFF, c.i, c.i);
-		//nglListAddString(*nglSysFont, "Pila", c.i);
-		//menu_enabled = !menu_enabled;
-		//my_printf("Got called %d", sizeof(Converter));
+		//render_current_debug_menu();
+		//my_print("CONA");
 	}
+}
+
+void close_debug(){
+	menu_enabled = 0;
+	game_unpause(*g_game_ptr, 1);
+}
+
+void handle_start_menu_entry(debug_menu_entry *entry, custom_key_type k){
+	//my_print("SEXOOOO");
+}
+
+void init_start_menu(){
+	start_menu = create_menu("Debug Menu", close_debug, handle_start_menu_entry, 2);
+
+	debug_menu_entry warp_entry = {"Warp", NORMAL, 0};
+	debug_menu_entry options_entry = {"Options", NORMAL, 0};
+
+	add_debug_menu_entry(start_menu, &warp_entry);
+	add_debug_menu_entry(start_menu, &options_entry);
+}
+
+void init_menus(){
+	//init_start_menu();
+	menus_inited = 1;
+	//my_print("menus have inited");
 }
 
 int pause_menu_key_handler(int *a1, int pad, int dualshock){
@@ -338,15 +511,21 @@ int pause_menu_key_handler(int *a1, int pad, int dualshock){
 	if(!dualshock){
 
 		if(pad == SELECT){
+
+			if(!menus_inited)
+				init_menus();
+
 			menu_enabled = !menu_enabled;
 			my_print("PIROCA menu_enabled");
 
 			if(!menu_enabled){
-				game_unpause(*g_game_ptr, 1);
+				close_debug();
 				return pause_menu_key_handler_orig(a1, 0, 0);
 			}
-			else
+			else{
+				current_menu = start_menu;
 				return pause_menu_key_handler_orig(a1, START, dualshock);
+			}
 
 		}
 	}
