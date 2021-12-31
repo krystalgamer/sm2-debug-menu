@@ -23,7 +23,7 @@ static debug_menu* start_menu;
 
 
 
-void printf_syscall(const char* passedInA0, ...){
+int printf_syscall(const char* passedInA0, ...){
 	    asm __volatile__(
 		    "li $v1,0x75 \n"
 		    "syscall    \n"
@@ -34,7 +34,7 @@ void __attribute__((noinline)) actual_printer(int i) {
 	printf_syscall(buffer);
 }
 
-void* memset(void *ptr,  int b, unsigned int size){
+void* memset(void *ptr,  int b, long int size){
 
 	unsigned char* cptr = ptr;
 	for(unsigned int i = 0; i<size; i++)
@@ -203,8 +203,9 @@ void nglListAddString(void *font, const char *str, int color, int x, int y, int 
 
 void nglGetStringDimensions(void *font, const char *str, int *width, int *height, int x_scale, int y_scale){
 	asm __volatile__ (
-		"subu $sp, $sp, 4\n"
+		"subu $sp, $sp, 8\n"
 		"sw $ra, 0($sp)\n"
+		//"sw $v1, 4($sp)\n"
 
 		"mtc1 $a4, $f12\n"
 		"mtc1 $a5, $f13\n"
@@ -214,7 +215,8 @@ void nglGetStringDimensions(void *font, const char *str, int *width, int *height
 
 		 "nop\n"
 		 "ld $ra, 0($sp)\n"
-		 "add $sp, $sp, 4\n"
+		 //"ld $v1, 4($sp)\n"
+		 "add $sp, $sp, 8\n"
 	       );
 
 }
@@ -381,6 +383,24 @@ int getStringHeight(const char* str) {
 	return height;
 }
 
+
+typedef void (*merda_ptr)(const char*);
+static const merda_ptr merda = (void*)0x90909090;
+void __attribute__((noinline)) first(const char* f){
+	my_print(f);
+}
+
+void __attribute__((noinline)) second(const char* f, ...){
+	
+	my_print(f);
+}
+
+void exemplo(){
+	const char *c = "CONA";
+	first(c);
+	first(c);
+}
+
 void render_current_debug_menu() {
 
 
@@ -399,13 +419,11 @@ void render_current_debug_menu() {
 		 getStringDimensions(x, &cur_width, &cur_height); \
 		 debug_height += cur_height; \
 		 debug_width = max(debug_width, cur_width);\
-		 my_printf("String %08X %s", x, x);\
 	}
+
 
 	get_and_update(current_menu->title);
 	get_and_update(UP_ARROW);
-
-
 
 
 
@@ -449,7 +467,6 @@ void render_current_debug_menu() {
 	//nglListAddString(*nglSysFont, current_menu->title, green_color, cfi(render_x * 1.0f), cfi(render_height * 1.0f), cfi(0.2f), cfi(1.f), cfi(1.f));
 	//nglListAddString(*nglSysFont, current_menu->title, green_color, cfi(10.f), cfi(10.f), cfi(-0.2f), cfi(1.f), cfi(1.f));
 	nglListAddString(*nglSysFont, current_menu->title, green_color, cfi(render_x*1.0f), cfi(render_height * 1.0f), cfi(0.f), cfi(1.f), cfi(1.f));
-	return;
 	render_height += getStringHeight(current_menu->title);
 
 
@@ -511,7 +528,7 @@ void init_menus(){
 
 int pause_menu_key_handler(int *a1, int pad, int dualshock){
 
-	my_printf("pad %s", key_names[pad]);
+	my_printf("pad %s %d", key_names[pad], sizeof(long long));
 	if(!dualshock){
 
 		if(pad == SELECT){

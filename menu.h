@@ -3,7 +3,7 @@
 #define MAX_CHARS MAX_CHARS_SAFE+1
 #define EXTEND_NEW_ENTRIES 20
 #define MAX_ELEMENTS_PAGE 18
-#define nglColor(r,g,b,a) ( (a << 24) |  (r << 16) | (g << 8) | (b & 255) )
+#define nglColor(r,g,b,a) ( (a << 24) |  (b << 16) | (g << 8) | (r & 255) )
 
 
 typedef enum{
